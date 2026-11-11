@@ -21,7 +21,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Date;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -74,8 +73,6 @@ import org.springframework.web.client.RestClientException;
 @Resource(name="v1/stockmanagement/stockoperation", supportedClass=StockOperationDTO.class, supportedOpenmrsVersions={"1.9.*", "1.10.*", "1.11.*", "1.12.*", "2.*"})
 public class StockOperationResource
 extends ResourceBase<StockOperationDTO> {
-    private static final ThreadLocal<Map<String, SimpleObject>> permissionCacheHolder = new ThreadLocal();
-
     public StockOperationDTO getByUniqueId(String uniqueId) {
         Result<StockOperationLinkDTO> parents;
         StockOperationDTO stockOperationDTO;
@@ -379,17 +376,16 @@ extends ResourceBase<StockOperationDTO> {
         instance.setStockOperationItems(itemsToUpdate);
     }
 
+    /*
+     * Computed on every call. 2.1.2 kept the result in a ThreadLocal map keyed by the
+     * operation uuid that was never cleared, so a server thread answered later requests,
+     * from any user, with the flags it computed first, whatever the operation's status
+     * had become since (a dispatched Stock Issue without canReceiveItems for its
+     * receiver). Upstream removes its own copy of this cache in O3-6248.
+     */
     @PropertyGetter(value="permission")
     public SimpleObject getPermission(StockOperationDTO stockOperationDTO) {
         HashSet<PrivilegeScope> privilegeScopes;
-        Map<String, SimpleObject> cache = permissionCacheHolder.get();
-        if (cache == null) {
-            cache = new HashMap<String, SimpleObject>();
-            permissionCacheHolder.set(cache);
-        }
-        if (cache.containsKey(stockOperationDTO.getUuid())) {
-            return cache.get(stockOperationDTO.getUuid());
-        }
         SimpleObject simpleObject = new SimpleObject();
         simpleObject.add("canView", (Object)true);
         boolean canEdit = stockOperationDTO.isUpdateable();
@@ -443,7 +439,6 @@ extends ResourceBase<StockOperationDTO> {
         simpleObject.add("canDisplayReceivedItems", (Object)canDisplayReceivedItems);
         simpleObject.add("isRequisitionAndCanIssueStock", (Object)isRequisitionAndCanIssueStock);
         simpleObject.add("canUpdateBatchInformation", (Object)canUpdateBatchInformation);
-        cache.put(stockOperationDTO.getUuid(), simpleObject);
         return simpleObject;
     }
 
