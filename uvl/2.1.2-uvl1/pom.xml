@@ -1,0 +1,193 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  stockmanagement 2.1.2 plus the stock operation permission fix, as 2.1.2-uvl1.
+
+  The source of the published stockmanagement 2.1.2 is not in this repository (no tag,
+  branch or pull request carries it), so this does not rebuild the module. It compiles
+  the one patched class, StockOperationResource, against the published 2.1.2 omod,
+  runs its test, and writes target/stockmanagement-2.1.2-uvl1.omod: the published omod
+  with that class replaced and config.xml at version 2.1.2-uvl1. Everything else in the
+  omod is byte-for-byte the published 2.1.2.
+
+  src/main/java/.../StockOperationResource.java is the 2.1.2 class decompiled (CFR 0.152)
+  with the permission cache removed; see README.md.
+
+    mvn clean package
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>org.openmrs.module</groupId>
+    <artifactId>stockmanagement-uvl-patch</artifactId>
+    <version>2.1.2-uvl1</version>
+    <packaging>jar</packaging>
+    <name>Stock Management 2.1.2 permission cache patch</name>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <stockmanagementVersion>2.1.2</stockmanagementVersion>
+        <!-- the versions the published 2.1.2 was built against -->
+        <openmrsPlatformVersion>2.8.0</openmrsPlatformVersion>
+        <webservicesRestVersion>2.32.0</webservicesRestVersion>
+        <patchedOmodName>stockmanagement-${project.version}.omod</patchedOmodName>
+        <omodDirectory>${project.build.directory}/omod</omodDirectory>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.openmrs.module</groupId>
+            <artifactId>stockmanagement-omod</artifactId>
+            <version>${stockmanagementVersion}</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.openmrs.module</groupId>
+            <artifactId>stockmanagement-api</artifactId>
+            <version>${stockmanagementVersion}</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.openmrs.api</groupId>
+            <artifactId>openmrs-api</artifactId>
+            <version>${openmrsPlatformVersion}</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.openmrs.web</groupId>
+            <artifactId>openmrs-web</artifactId>
+            <version>${openmrsPlatformVersion}</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.openmrs.module</groupId>
+            <artifactId>webservices.rest-omod-common</artifactId>
+            <version>${webservicesRestVersion}</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <version>4.13.2</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-core</artifactId>
+            <version>3.12.4</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.11.0</version>
+                <configuration>
+                    <source>1.8</source>
+                    <target>1.8</target>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.0.0-M8</version>
+                <configuration>
+                    <!-- the patched class must win over the one inside the 2.1.2 omod -->
+                    <classpathDependencyExcludes>
+                        <classpathDependencyExclude>org.openmrs.module:stockmanagement-omod</classpathDependencyExclude>
+                    </classpathDependencyExcludes>
+                    <additionalClasspathElements>
+                        <additionalClasspathElement>${omodDirectory}</additionalClasspathElement>
+                    </additionalClasspathElements>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <version>3.5.0</version>
+                <executions>
+                    <execution>
+                        <id>unpack-published-omod</id>
+                        <phase>process-test-classes</phase>
+                        <goals>
+                            <goal>unpack</goal>
+                        </goals>
+                        <configuration>
+                            <artifactItems>
+                                <artifactItem>
+                                    <groupId>org.openmrs.module</groupId>
+                                    <artifactId>stockmanagement-omod</artifactId>
+                                    <version>${stockmanagementVersion}</version>
+                                    <type>jar</type>
+                                    <outputDirectory>${omodDirectory}</outputDirectory>
+                                </artifactItem>
+                            </artifactItems>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <version>3.1.0</version>
+                <executions>
+                    <execution>
+                        <!-- before the tests, so they run against the omod's classes with the patch -->
+                        <id>patch-omod</id>
+                        <phase>process-test-classes</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <target>
+                                <delete>
+                                    <fileset dir="${omodDirectory}/org/openmrs/module/stockmanagement/web/resource"
+                                             includes="StockOperationResource.class StockOperationResource$*.class"/>
+                                </delete>
+                                <copy todir="${omodDirectory}">
+                                    <fileset dir="${project.build.outputDirectory}" includes="org/**/*.class"/>
+                                </copy>
+                                <replace file="${omodDirectory}/config.xml"
+                                         token="&lt;version&gt;${stockmanagementVersion}&lt;/version&gt;"
+                                         value="&lt;version&gt;${project.version}&lt;/version&gt;"/>
+                                <loadfile property="patched.config" srcFile="${omodDirectory}/config.xml"/>
+                                <fail message="config.xml was not set to version ${project.version}">
+                                    <condition>
+                                        <not>
+                                            <contains string="${patched.config}"
+                                                      substring="&lt;version&gt;${project.version}&lt;/version&gt;"/>
+                                        </not>
+                                    </condition>
+                                </fail>
+                            </target>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>package-omod</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <target>
+                                <zip destfile="${project.build.directory}/${patchedOmodName}"
+                                     basedir="${omodDirectory}"/>
+                            </target>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+    <repositories>
+        <repository>
+            <id>openmrs-repo</id>
+            <name>OpenMRS Nexus Repository</name>
+            <url>https://mavenrepo.openmrs.org/public</url>
+        </repository>
+    </repositories>
+</project>
