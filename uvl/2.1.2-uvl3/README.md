@@ -1,11 +1,13 @@
-# stockmanagement 2.1.2-uvl2
+# stockmanagement 2.1.2-uvl3
 
-The published `org.openmrs.module:stockmanagement-omod:2.1.2` with two fixes, built for UVL-EMR
-(MadiroGlobalHealth/UVL-EMR#447):
+The published `org.openmrs.module:stockmanagement-omod:2.1.2` with three fixes, built for UVL-EMR
+(MadiroGlobalHealth/UVL-EMR#447, #638):
 
 - `2.1.2-uvl1`: stock operation permissions are computed on every request.
 - `2.1.2-uvl2`: creating or updating a stock operation is checked against the user's role
   scopes, and a refusal by the scopes is answered with a 403.
+- `2.1.2-uvl3`: an operation's items keep their own received quantity in the single-operation
+  representation.
 
 ## uvl1: the permission cache
 
@@ -51,6 +53,21 @@ module's own message (`stockmanagement.stockoperation.nopermission`).
 The module has no rule against approving an operation one created: neither the `permission`
 flags (`canApprove`) nor `approveStockOperation` look at the creator. So uvl2 adds none.
 
+## uvl3: the received quantity of an operation's items
+
+`GET stockoperation/{uuid}?v=full` builds `stockOperationItems` in
+`StockOperationResource.getStockOperationItems`. 2.1.2 there fills each item's `quantityDispensed`,
+`beginningBalance` and `stockInHand` from `getAggregatedStockItemSummaries` over the 30 days to the
+operation date, and also replaced `quantityReceived` with the summary's `received`: everything the
+stock item received in those 30 days. On UAT a Stock Issue of 6 showed 1144 and one of 7 showed
+1251, the item's positive transactions in the 30 days to each operation date, while the operation
+item rows and the list endpoint (`doSearch`, which doesn't call the getter's summaries) held 6 and
+7. The stock app shows `quantityReceived` as « Quantité reçue » in the received items.
+
+uvl3 no longer sets `quantityReceived` from the summary, nor to zero when the item has none: it is
+the operation item's own value, as on upstream `master`, which has no summaries in this getter.
+The other three summary fields are unchanged; the stock app 3.3.1 reads none of them.
+
 ## Why this isn't a source build
 
 No tag, branch or pull request in this repository carries the source of the published 2.1.x
@@ -64,17 +81,18 @@ So this directory doesn't rebuild the module:
 - `src/main/java/.../StockOperationActionResource.java` is the 2.1.2 class decompiled the same
   way, first committed unedited (it compiles to the published bytecode, `javap -p -c`).
 - `pom.xml` compiles those classes against the published 2.1.2 omod and tests them against the
-  unpacked omod with the classes replaced. It then zips `target/stockmanagement-2.1.2-uvl2.omod`:
-  the published omod with those classes swapped and `config.xml` at version `2.1.2-uvl2`. Every
+  unpacked omod with the classes replaced. It then zips `target/stockmanagement-2.1.2-uvl3.omod`:
+  the published omod with those classes swapped and `config.xml` at version `2.1.2-uvl3`. Every
   other file is the published 2.1.2.
 
 ```
 mvn clean package
 ```
 
-`StockOperationResourceTest` fails on the 2.1.2 class: all three tests reuse one thread and one
-operation uuid, as Tomcat does. `StockOperationResourceSaveTest` and
+`StockOperationResourceTest` fails on the 2.1.2 class: the three `getPermission` tests reuse one
+thread and one operation uuid, as Tomcat does, and the two `getStockOperationItems` tests get the
+30-day total (or zero) instead of the item's received quantity. `StockOperationResourceSaveTest` and
 `StockOperationActionResourceTest` cover the scope check; they override the two hooks it adds
 (`userIsStockAdministrator`, `getNoPermissionMessage`), so they don't compile against 2.1.2.
 
-Delete this once UVL-EMR runs a stockmanagement release with both fixes.
+Delete this once UVL-EMR runs a stockmanagement release with all three fixes.
