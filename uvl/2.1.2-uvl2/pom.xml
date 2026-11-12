@@ -1,16 +1,17 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  stockmanagement 2.1.2 plus the stock operation permission fix, as 2.1.2-uvl1.
+  stockmanagement 2.1.2 plus the stock operation permission fixes, as 2.1.2-uvl2.
 
   The source of the published stockmanagement 2.1.2 is not in this repository (no tag,
   branch or pull request carries it), so this does not rebuild the module. It compiles
-  the one patched class, StockOperationResource, against the published 2.1.2 omod,
-  runs its test, and writes target/stockmanagement-2.1.2-uvl1.omod: the published omod
-  with that class replaced and config.xml at version 2.1.2-uvl1. Everything else in the
-  omod is byte-for-byte the published 2.1.2.
+  the patched classes, StockOperationResource and StockOperationActionResource, against
+  the published 2.1.2 omod, runs their tests, and writes
+  target/stockmanagement-2.1.2-uvl2.omod: the published omod with those classes replaced
+  and config.xml at version 2.1.2-uvl2. Everything else in the omod is byte-for-byte the
+  published 2.1.2.
 
-  src/main/java/.../StockOperationResource.java is the 2.1.2 class decompiled (CFR 0.152)
-  with the permission cache removed; see README.md.
+  src/main/java/.../*.java are the 2.1.2 classes decompiled (CFR 0.152) with the fixes
+  described in README.md.
 
     mvn clean package
 -->
@@ -20,9 +21,9 @@
 
     <groupId>org.openmrs.module</groupId>
     <artifactId>stockmanagement-uvl-patch</artifactId>
-    <version>2.1.2-uvl1</version>
+    <version>2.1.2-uvl2</version>
     <packaging>jar</packaging>
-    <name>Stock Management 2.1.2 permission cache patch</name>
+    <name>Stock Management 2.1.2 stock operation permission patch</name>
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -145,7 +146,7 @@
                             <target>
                                 <delete>
                                     <fileset dir="${omodDirectory}/org/openmrs/module/stockmanagement/web/resource"
-                                             includes="StockOperationResource.class StockOperationResource$*.class"/>
+                                             includes="StockOperationResource.class StockOperationResource$*.class StockOperationActionResource.class StockOperationActionResource$*.class"/>
                                 </delete>
                                 <copy todir="${omodDirectory}">
                                     <fileset dir="${project.build.outputDirectory}" includes="org/**/*.class"/>
