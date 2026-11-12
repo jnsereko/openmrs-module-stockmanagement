@@ -531,16 +531,16 @@ extends ResourceBase<StockOperationDTO> {
             Map<Integer, StockItemSummaryDTO> summaries = this.getStockManagementService().getAggregatedStockItemSummaries(stockItemIds, operationOrToday, periodStart, operationOrToday);
             for (StockOperationItemDTO item : items) {
                 StockItemSummaryDTO sum = summaries.get(item.getStockItemId());
+                // quantityReceived stays the operation item's own (uvl3): sum.getReceived() is
+                // what the stock item received at any location in the 30 days to the operation
                 if (sum != null) {
                     item.setQuantityDispensed(sum.getDispensed());
-                    item.setQuantityReceived(sum.getReceived());
                     item.setBeginningBalance(sum.getBeginningBalance());
                     item.setStockInHand(sum.getCurrentBalance());
                     item.setStockOutDays(0);
                     continue;
                 }
                 item.setQuantityDispensed(BigDecimal.ZERO);
-                item.setQuantityReceived(BigDecimal.ZERO);
                 item.setBeginningBalance(BigDecimal.ZERO);
                 item.setStockInHand(BigDecimal.ZERO);
                 item.setStockOutDays(0);

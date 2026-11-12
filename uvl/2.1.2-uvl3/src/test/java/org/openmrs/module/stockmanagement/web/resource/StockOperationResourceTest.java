@@ -1,6 +1,12 @@
 package org.openmrs.module.stockmanagement.web.resource;
 
+import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.HashSet;
+import java.util.List;
 
 import org.junit.After;
 import org.junit.Before;
@@ -11,13 +17,17 @@ import org.openmrs.api.context.UserContext;
 import org.openmrs.api.context.UsernamePasswordAuthenticationScheme;
 import org.openmrs.module.stockmanagement.api.StockManagementService;
 import org.openmrs.module.stockmanagement.api.dto.PrivilegeScope;
+import org.openmrs.module.stockmanagement.api.dto.Result;
+import org.openmrs.module.stockmanagement.api.dto.StockItemSummaryDTO;
 import org.openmrs.module.stockmanagement.api.dto.StockOperationDTO;
+import org.openmrs.module.stockmanagement.api.dto.StockOperationItemDTO;
 import org.openmrs.module.stockmanagement.api.model.Party;
 import org.openmrs.module.stockmanagement.api.model.StockOperationStatus;
 import org.openmrs.module.stockmanagement.api.model.StockOperationType;
 
 import static org.junit.Assert.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -32,6 +42,8 @@ public class StockOperationResourceTest {
 	private static final String OPERATION_UUID = "operation-uuid";
 
 	private static final String DESTINATION_UUID = "destination-party-uuid";
+
+	private static final Integer STOCK_ITEM_ID = 1;
 
 	private static final String RECEIVE_ITEMS = "Task: stockmanagement.stockoperations.receiveitems";
 
@@ -51,6 +63,8 @@ public class StockOperationResourceTest {
 		service = mock(StockManagementService.class);
 		when(service.getStockOperationTypeByUuid(any())).thenReturn(stockIssue);
 		when(service.getPartyByUuid(DESTINATION_UUID)).thenReturn(destination);
+		when(service.findStockItemPackagingUOMs(any())).thenReturn(new Result<>(new ArrayList<>(), 0));
+		when(service.findStockItemLossesAndAdjustments(any())).thenReturn(new Result<>(new ArrayList<>(), 0));
 		receiverScopes();
 
 		resource = new StockOperationResource() {
@@ -93,6 +107,55 @@ public class StockOperationResourceTest {
 	public void getPermission_shouldReflectTheCurrentStatusOfTheOperation() {
 		assertEquals(true, resource.getPermission(stockIssue(StockOperationStatus.DISPATCHED)).get("canDisplayReceivedItems"));
 		assertEquals(false, resource.getPermission(stockIssue(StockOperationStatus.CANCELLED)).get("canDisplayReceivedItems"));
+	}
+
+	// 2.1.2 replaced each item's quantityReceived with what the stock item had received in the
+	// 30 days to the operation date: 1144 for an issue of 6 on UAT (UVL-EMR#638).
+	@Test
+	public void getStockOperationItems_shouldKeepTheQuantityReceivedOfTheOperationItem() {
+		operationItems(item(new BigDecimal("6.00")));
+		StockItemSummaryDTO summary = new StockItemSummaryDTO();
+		summary.setStockItemId(STOCK_ITEM_ID);
+		summary.setReceived(new BigDecimal("1144.00"));
+		summary.setDispensed(new BigDecimal("12.00"));
+		summary.setBeginningBalance(new BigDecimal("40.00"));
+		summary.setCurrentBalance(new BigDecimal("1172.00"));
+		when(service.getAggregatedStockItemSummaries(anyCollection(), any(), any(), any()))
+		        .thenReturn(Collections.singletonMap(STOCK_ITEM_ID, summary));
+
+		StockOperationItemDTO item = resource.getStockOperationItems(stockIssue(StockOperationStatus.COMPLETED)).iterator().next();
+
+		assertEquals(new BigDecimal("6.00"), item.getQuantityReceived());
+		assertEquals(new BigDecimal("40.00"), item.getBeginningBalance());
+		assertEquals(new BigDecimal("1172.00"), item.getStockInHand());
+	}
+
+	@Test
+	public void getStockOperationItems_shouldLeaveTheQuantityReceivedOfAnItemWithoutStockSummary() {
+		operationItems(item(new BigDecimal("7.00")), item(null));
+
+		Collection<StockOperationItemDTO> items = resource.getStockOperationItems(stockIssue(StockOperationStatus.COMPLETED));
+
+		List<BigDecimal> received = new ArrayList<>();
+		for (StockOperationItemDTO item : items) {
+			received.add(item.getQuantityReceived());
+		}
+		assertEquals(Arrays.asList(new BigDecimal("7.00"), null), received);
+	}
+
+	private void operationItems(StockOperationItemDTO... items) {
+		List<StockOperationItemDTO> data = new ArrayList<>(Arrays.asList(items));
+		when(service.findStockOperationItems(any())).thenReturn(new Result<>(data, data.size()));
+	}
+
+	private static StockOperationItemDTO item(BigDecimal quantityReceived) {
+		StockOperationItemDTO item = new StockOperationItemDTO();
+		item.setStockOperationUuid(OPERATION_UUID);
+		item.setStockItemId(STOCK_ITEM_ID);
+		item.setStockItemUuid("stock-item-uuid");
+		item.setQuantity(quantityReceived);
+		item.setQuantityReceived(quantityReceived);
+		return item;
 	}
 
 	private void receiverScopes(String... privileges) {
