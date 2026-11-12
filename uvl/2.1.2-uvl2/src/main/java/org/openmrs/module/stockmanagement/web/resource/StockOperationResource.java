@@ -32,6 +32,8 @@ import org.apache.commons.lang.StringUtils;
 import org.apache.commons.lang.time.DateUtils;
 import org.openmrs.Concept;
 import org.openmrs.Location;
+import org.openmrs.User;
+import org.openmrs.api.APIAuthenticationException;
 import org.openmrs.api.context.Context;
 import org.openmrs.module.stockmanagement.api.StockManagementException;
 import org.openmrs.module.stockmanagement.api.StockManagementService;
@@ -199,6 +201,7 @@ extends ResourceBase<StockOperationDTO> {
     }
 
     public StockOperationDTO save(StockOperationDTO delegate) {
+        this.checkUserCanMutate(delegate);
         try {
             StockOperation stockOperation = this.getStockManagementService().saveStockOperation(delegate);
             return this.getByUniqueId(stockOperation.getUuid());
@@ -206,6 +209,73 @@ extends ResourceBase<StockOperationDTO> {
         catch (StockManagementException exception) {
             throw new RestClientException(exception.getMessage());
         }
+    }
+
+    /*
+     * 2.1.2 checks only the global "Task: stockmanagement.stockoperations.mutate" privilege on
+     * create and update, so any user holding it could create or change an operation at any
+     * location, of any type. Apply the check every action already makes
+     * (StockOperationType.userCanProcess, used by processStockOperationAction and
+     * voidStockOperationItem): the user's role scopes must give that privilege for the
+     * operation's type at its location. The location is the one saveStockOperation sets
+     * (the destination of a Receipt, otherwise the source), and on update also the stored one,
+     * which saveStockOperation keeps. A stock administrator keeps full rights.
+     */
+    void checkUserCanMutate(StockOperationDTO delegate) {
+        if (this.userIsStockAdministrator()) {
+            return;
+        }
+        StockManagementService service = this.getStockManagementService();
+        StockOperationType stockOperationType = service.getStockOperationTypeByUuid(delegate.getOperationTypeUuid());
+        if (stockOperationType == null) {
+            return;
+        }
+        ArrayList<Location> locations = new ArrayList<Location>();
+        if (StringUtils.isNotBlank((String)delegate.getUuid())) {
+            StockOperation stored = service.getStockOperationByUuid(delegate.getUuid());
+            if (stored != null && stored.getAtLocation() != null) {
+                locations.add(stored.getAtLocation());
+            }
+        } else if (StringUtils.isNotBlank((String)delegate.getAtLocationUuid())) {
+            locations.add(Context.getLocationService().getLocationByUuid(delegate.getAtLocationUuid()));
+        }
+        Party party = null;
+        if (RECEIPT_OPERATION_TYPE_UUID.equals(delegate.getOperationTypeUuid())) {
+            if (StringUtils.isNotBlank((String)delegate.getDestinationUuid())) {
+                party = service.getPartyByUuid(delegate.getDestinationUuid());
+            }
+        } else if (StringUtils.isNotBlank((String)delegate.getSourceUuid())) {
+            party = service.getPartyByUuid(delegate.getSourceUuid());
+        }
+        if (party != null && party.getLocation() != null) {
+            locations.add(party.getLocation());
+        }
+        for (Location location : locations) {
+            if (location == null || !service.userHasStockManagementPrivilege(Context.getAuthenticatedUser(), location, stockOperationType, MUTATE_PRIVILEGE)) {
+                throw new APIAuthenticationException(this.getNoPermissionMessage());
+            }
+        }
+    }
+
+    // StockManagementServiceImpl.RECEIPT_OPERATION_TYPE_UUID, private there.
+    private static final String RECEIPT_OPERATION_TYPE_UUID = "44444444-4444-4444-4444-444444444444";
+
+    private static final String MUTATE_PRIVILEGE = "Task: stockmanagement.stockoperations.mutate";
+
+    static final String STOCK_ADMINISTRATOR_PRIVILEGE = "Task: stockmanagement.userRoleScopes.mutate";
+
+    /*
+     * Who may grant role scopes (Inventory Administrator) may act on any operation; a super user
+     * (System Developer) holds every privilege.
+     */
+    protected boolean userIsStockAdministrator() {
+        User user = Context.getAuthenticatedUser();
+        return user != null && user.hasPrivilege(STOCK_ADMINISTRATOR_PRIVILEGE);
+    }
+
+    // The message StockManagementServiceImpl gives when the scopes refuse an action.
+    protected String getNoPermissionMessage() {
+        return Context.getMessageSourceService().getMessage("stockmanagement.stockoperation.nopermission");
     }
 
     public DelegatingResourceDescription getCreatableProperties() throws ResourceDoesNotSupportOperationException {

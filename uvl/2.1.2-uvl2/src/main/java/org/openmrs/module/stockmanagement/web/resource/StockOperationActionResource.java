@@ -1,7 +1,7 @@
 /*
  * StockOperationActionResource from the published stockmanagement-omod 2.1.2, decompiled with
- * CFR 0.152 because its source is not public. The decompiled text is unedited; the compiled
- * class keeps the 2.1.2 methods, signatures and annotations.
+ * CFR 0.152 because its source is not public. The decompiled text compiles to the 2.1.2
+ * bytecode; the only change since is that a refusal by the role scopes is answered with a 403.
  */
 package org.openmrs.module.stockmanagement.web.resource;
 
@@ -10,6 +10,8 @@ import io.swagger.models.ModelImpl;
 import io.swagger.models.properties.ArrayProperty;
 import io.swagger.models.properties.Property;
 import io.swagger.models.properties.StringProperty;
+import org.openmrs.api.APIAuthenticationException;
+import org.openmrs.api.context.Context;
 import org.openmrs.module.stockmanagement.api.StockManagementException;
 import org.openmrs.module.stockmanagement.api.dto.Result;
 import org.openmrs.module.stockmanagement.api.dto.StockOperationAction;
@@ -92,9 +94,22 @@ extends ResourceBase<StockOperationAction> {
             }
         }
         catch (StockManagementException exception) {
+            if (exception.getMessage() != null && exception.getMessage().equals(this.getNoPermissionMessage())) {
+                throw new APIAuthenticationException(exception.getMessage());
+            }
             throw new RestClientException(exception.getMessage());
         }
         return delegate;
+    }
+
+    /*
+     * Every action already checks the user's role scopes in
+     * StockManagementServiceImpl.processStockOperationAction, but 2.1.2 answered a refusal like
+     * any other error, with a 500. Answer it with a 403, as the create and update check in
+     * StockOperationResource does.
+     */
+    protected String getNoPermissionMessage() {
+        return Context.getMessageSourceService().getMessage("stockmanagement.stockoperation.nopermission");
     }
 
     public void purge(StockOperationAction delegate, RequestContext context) throws ResponseException {
