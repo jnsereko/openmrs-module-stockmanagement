@@ -462,7 +462,7 @@ extends ResourceBase<StockOperationDTO> {
         boolean canApprove = stockOperationDTO.isApproveable();
         boolean canReceiveItems = stockOperationDTO.canReceiveItems();
         boolean canDisplayReceivedItems = stockOperationDTO.canDisplayReceivedItems();
-        boolean isRequisitionAndCanIssueStock = stockOperationDTO.isRequisitionAndCanIssueStock();
+        boolean isRequisitionAndCanIssueStock = this.isRequisitionToIssue(stockOperationDTO);
         StockOperationType stockOperationType = this.getStockManagementService().getStockOperationTypeByUuid(stockOperationDTO.getOperationTypeUuid());
         boolean canUpdateBatchInformation = stockOperationDTO.canUpdateBatchInformation(stockOperationType);
         Boolean userHasEditPermissions = null;
@@ -510,6 +510,32 @@ extends ResourceBase<StockOperationDTO> {
         simpleObject.add("isRequisitionAndCanIssueStock", (Object)isRequisitionAndCanIssueStock);
         simpleObject.add("canUpdateBatchInformation", (Object)canUpdateBatchInformation);
         return simpleObject;
+    }
+
+    /*
+     * 2.1.2's StockOperationDTO.isRequisitionAndCanIssueStock asks for a COMPLETED requisition,
+     * but approving a requisition in 2.1.2 leaves it AUTHORIZED, so an approved requisition never
+     * offered "Issue Stock" and its Stock Issue was made unlinked. An approved requisition can be
+     * issued, and so can a completed one (a requisition type without approval), as long as no
+     * Stock Issue made from it is still going: one that is not cancelled, rejected or voided.
+     * StockIssueOperationTypeProcessor completes the requisition when its issue completes.
+     */
+    protected boolean isRequisitionToIssue(StockOperationDTO stockOperationDTO) {
+        if (stockOperationDTO.isUpdateable() || !"requisition".equals(stockOperationDTO.getOperationType())) {
+            return false;
+        }
+        StockOperationStatus status = stockOperationDTO.getStatus();
+        if (status != StockOperationStatus.AUTHORIZED && status != StockOperationStatus.COMPLETED) {
+            return false;
+        }
+        Result<StockOperationLinkDTO> links = this.getStockManagementService().findStockOperationLinks(stockOperationDTO.getUuid());
+        if (links == null || links.getData() == null) {
+            return true;
+        }
+        return links.getData().stream().noneMatch(link -> stockOperationDTO.getUuid().equals(link.getParentUuid())
+                && !link.getChildVoided()
+                && link.getChildStatus() != StockOperationStatus.CANCELLED
+                && link.getChildStatus() != StockOperationStatus.REJECTED);
     }
 
     @PropertyGetter(value="stockOperationItems")
