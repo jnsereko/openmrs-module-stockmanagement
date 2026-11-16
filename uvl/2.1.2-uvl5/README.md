@@ -1,7 +1,7 @@
-# stockmanagement 2.1.2-uvl4
+# stockmanagement 2.1.2-uvl5
 
-The published `org.openmrs.module:stockmanagement-omod:2.1.2` with four fixes, built for UVL-EMR
-(MadiroGlobalHealth/UVL-EMR#447, #638, #641):
+The published `org.openmrs.module:stockmanagement-omod:2.1.2` with five fixes, built for UVL-EMR
+(MadiroGlobalHealth/UVL-EMR#447, #638, #641, #529):
 
 - `2.1.2-uvl1`: stock operation permissions are computed on every request.
 - `2.1.2-uvl2`: creating or updating a stock operation is checked against the user's role
@@ -9,6 +9,7 @@ The published `org.openmrs.module:stockmanagement-omod:2.1.2` with four fixes, b
 - `2.1.2-uvl3`: an operation's items keep their own received quantity in the single-operation
   representation.
 - `2.1.2-uvl4`: an approved requisition can be issued from, and its Stock Issue completes it.
+- `2.1.2-uvl5`: units, categories and reasons are named in the user's locale.
 
 ## uvl1: the permission cache
 
@@ -93,6 +94,24 @@ nobody has).
 The Stock Issue is linked by the stock app sending `requisitionStockOperationUuid` on create, which
 2.1.2 already stores as a `StockOperationLink` and returns on the issue.
 
+## uvl5: concept names in the user's locale
+
+`StockManagementDao.getConceptNamesByConceptIds` and `getConceptNames` select every fully
+specified name of the concepts they are given, in any locale, and their callers keep the first
+one per concept. The unit concepts carry a fully specified name in English and in French, so a
+French session got whichever the database returned first: on UAT the dispense batch list showed
+the unit as « (Capsule) » (`stockiteminventory` takes its `quantityUoM` from
+`findStockItemPackagingUOMs`, which names the unit this way). Item concepts, categories and
+operation reasons go through the same two methods.
+
+`LocalizedStockManagementDao` (api, new) extends the 2.1.2 DAO and overrides only those two
+methods. They read the unvoided fully specified and locale preferred names, and return one name
+per concept: the locale preferred name in the user's locale (`Context.getLocale()`, set from the
+session), else the fully specified one there, else the same in the locale's language, else the
+first fully specified name, which is what 2.1.2 returned. `moduleApplicationContext.xml` in
+`lib/stockmanagement-api-2.1.2.jar` names it as `StockManagementServiceImpl`'s `dao`, the only
+place the DAO is made. The 2.1.2 DAO class is not touched, so it is not decompiled here.
+
 ## Why this isn't a source build
 
 No tag, branch or pull request in this repository carries the source of the published 2.1.x
@@ -107,11 +126,13 @@ So this directory doesn't rebuild the module:
   way, first committed unedited (it compiles to the published bytecode, `javap -p -c`).
 - `src/main/java/.../api/impl/StockIssueOperationTypeProcessor.java` is the 2.1.2 api class
   decompiled the same way, first committed unedited (same bytecode, with its anonymous classes).
+- `src/main/java/.../api/dao/LocalizedStockManagementDao.java` is new (uvl5).
 - `pom.xml` compiles those classes against the published 2.1.2 omod and api and tests them
   against the unpacked omod with the classes replaced. It then zips
-  `target/stockmanagement-2.1.2-uvl4.omod`: the published omod with the web classes swapped, the
-  api class swapped inside `lib/stockmanagement-api-2.1.2.jar` (unzipped and zipped back under its
-  own name), and `config.xml` at version `2.1.2-uvl4`. Every other file is the published 2.1.2.
+  `target/stockmanagement-2.1.2-uvl5.omod`: the published omod with the web classes swapped, the
+  api classes swapped or added inside `lib/stockmanagement-api-2.1.2.jar` (unzipped and zipped back
+  under its own name) with its `moduleApplicationContext.xml` naming `LocalizedStockManagementDao`,
+  and `config.xml` at version `2.1.2-uvl5`. Every other file is the published 2.1.2.
 
 ```
 mvn clean package
@@ -127,4 +148,8 @@ thread and one operation uuid, as Tomcat does, and the two `getStockOperationIte
 fail on the 2.1.2 classes (no `completeRequisitions`; no « Issue Stock » on an `AUTHORIZED`
 requisition).
 
-Delete this once UVL-EMR runs a stockmanagement release with all four fixes.
+`LocalizedStockManagementDaoTest` covers uvl5 with the UAT names of the Capsule and Bottle units,
+English first: a French session gets « Gélule » and « Flacon », an English one « Capsule » and
+« Bottle ». The class does not exist in 2.1.2.
+
+Delete this once UVL-EMR runs a stockmanagement release with all five fixes.
