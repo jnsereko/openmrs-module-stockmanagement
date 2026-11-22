@@ -1,7 +1,7 @@
-# stockmanagement 2.1.2-uvl5
+# stockmanagement 2.1.2-uvl6
 
-The published `org.openmrs.module:stockmanagement-omod:2.1.2` with five fixes, built for UVL-EMR
-(MadiroGlobalHealth/UVL-EMR#447, #638, #641, #529):
+The published `org.openmrs.module:stockmanagement-omod:2.1.2` with six fixes, built for UVL-EMR
+(MadiroGlobalHealth/UVL-EMR#447, #638, #641, #529, #862):
 
 - `2.1.2-uvl1`: stock operation permissions are computed on every request.
 - `2.1.2-uvl2`: creating or updating a stock operation is checked against the user's role
@@ -10,6 +10,7 @@ The published `org.openmrs.module:stockmanagement-omod:2.1.2` with five fixes, b
   representation.
 - `2.1.2-uvl4`: an approved requisition can be issued from, and its Stock Issue completes it.
 - `2.1.2-uvl5`: units, categories and reasons are named in the user's locale.
+- `2.1.2-uvl6`: a report job, which has no location, is listed and can be read by its uuid.
 
 ## uvl1: the permission cache
 
@@ -112,6 +113,27 @@ first fully specified name, which is what 2.1.2 returned. `moduleApplicationCont
 `lib/stockmanagement-api-2.1.2.jar` names it as `StockManagementServiceImpl`'s `dao`, the only
 place the DAO is made. The 2.1.2 DAO class is not touched, so it is not decompiled here.
 
+## uvl6: report jobs are listed
+
+`GET batchjob?batchJobType=Report` answered `{"results":[],"totalCount":0}` and
+`GET batchjob/<uuid>` a 404 for the user who had just requested the report. In 2.1.2
+`StockManagementServiceImpl.findBatchJobs(filter)` takes the locations of the user's role scopes that
+carry `App: stockmanagement.reports`, and `StockManagementDao.findBatchJobs` adds
+`bj.locationScope.locationId in (:liids)`. A Report job is created with no location (the REST
+resource's creatable properties are `batchJobType`, `description` and `parameters`, so the app cannot
+send one), its `location_scope` is NULL, and `NULL in (...)` is never true. So no Report job was ever
+listed or readable, whatever the user's scopes.
+
+`LocalizedStockManagementDao.findBatchJobs` now lists a job without a location for any user whose
+reports scope covers at least one location. It reads the jobs without the location restriction
+(`super.findBatchJobs` with no privilege filters, all pages), keeps those with no location or in a
+scope location, and pages them itself (`startIndex` is a page number as in 2.1.2, `totalCount`
+counts the jobs kept). A request that names a location (`locationScopeUuid`) and a call without
+privilege filters are 2.1.2's. A user with no reports scope still lists nothing: the service
+returns before the DAO, and the DAO answers nothing for an empty scope too. A job at a location
+outside the user's scope is still not listed. There is no owner filter, as in 2.1.2: every report
+in scope is visible to anyone holding the reports scope.
+
 ## Why this isn't a source build
 
 No tag, branch or pull request in this repository carries the source of the published 2.1.x
@@ -126,13 +148,13 @@ So this directory doesn't rebuild the module:
   way, first committed unedited (it compiles to the published bytecode, `javap -p -c`).
 - `src/main/java/.../api/impl/StockIssueOperationTypeProcessor.java` is the 2.1.2 api class
   decompiled the same way, first committed unedited (same bytecode, with its anonymous classes).
-- `src/main/java/.../api/dao/LocalizedStockManagementDao.java` is new (uvl5).
+- `src/main/java/.../api/dao/LocalizedStockManagementDao.java` is new (uvl5; uvl6 adds `findBatchJobs`).
 - `pom.xml` compiles those classes against the published 2.1.2 omod and api and tests them
   against the unpacked omod with the classes replaced. It then zips
-  `target/stockmanagement-2.1.2-uvl5.omod`: the published omod with the web classes swapped, the
+  `target/stockmanagement-2.1.2-uvl6.omod`: the published omod with the web classes swapped, the
   api classes swapped or added inside `lib/stockmanagement-api-2.1.2.jar` (unzipped and zipped back
   under its own name) with its `moduleApplicationContext.xml` naming `LocalizedStockManagementDao`,
-  and `config.xml` at version `2.1.2-uvl5`. Every other file is the published 2.1.2.
+  and `config.xml` at version `2.1.2-uvl6`. Every other file is the published 2.1.2.
 
 ```
 mvn clean package
@@ -152,4 +174,9 @@ requisition).
 English first: a French session gets « Gélule » and « Flacon », an English one « Capsule » and
 « Bottle ». The class does not exist in 2.1.2.
 
-Delete this once UVL-EMR runs a stockmanagement release with all five fixes.
+`LocalizedStockManagementDaoBatchJobTest` covers uvl6: a job without a location is listed for a user with a
+reports scope, one at a location outside the scope is not, an empty scope lists nothing, and the
+paging and total count of what is kept. It needs the seam `findBatchJobs212` because the 2.1.2 query
+needs a database.
+
+Delete this once UVL-EMR runs a stockmanagement release with all six fixes.

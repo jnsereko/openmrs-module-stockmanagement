@@ -2,14 +2,21 @@ package org.openmrs.module.stockmanagement.api.dao;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import org.openmrs.api.ConceptNameType;
 import org.openmrs.api.context.Context;
+import org.openmrs.module.stockmanagement.api.dto.BatchJobDTO;
+import org.openmrs.module.stockmanagement.api.dto.BatchJobSearchFilter;
 import org.openmrs.module.stockmanagement.api.dto.ConceptNameDTO;
+import org.openmrs.module.stockmanagement.api.dto.RecordPrivilegeFilter;
+import org.openmrs.module.stockmanagement.api.dto.Result;
 
 /**
  * The 2.1.2 DAO with concept names in the user's locale.
@@ -20,8 +27,14 @@ import org.openmrs.module.stockmanagement.api.dto.ConceptNameDTO;
  * from the database: the dispensing unit « (Capsule) » in the dispense batch list of a French
  * session (UVL-EMR#529). These two methods are the only place the DAO names a concept (units,
  * categories, reasons, items), so this class overrides them to return one name per concept, the
- * one {@link #pickName} prefers for {@link #getLocale()}. {@code moduleApplicationContext.xml}
- * names this class as the service's DAO.
+ * one {@link #pickName} prefers for {@link #getLocale()}.
+ * <p>
+ * It also lists the batch jobs that have no location (UVL-EMR#862): 2.1.2 restricts the list to
+ * the locations of the user's reports scope with {@code location_scope in (...)}, which never
+ * matches a job whose location is NULL, and every Report job is created without one (the REST
+ * resource cannot set it). See {@link #findBatchJobs}.
+ * <p>
+ * {@code moduleApplicationContext.xml} names this class as the service's DAO.
  */
 public class LocalizedStockManagementDao extends StockManagementDao {
 
@@ -135,5 +148,70 @@ public class LocalizedStockManagementDao extends StockManagementDao {
 			        Boolean.TRUE.equals(columns[3]), ConceptNameType.FULLY_SPECIFIED.equals(columns[4])));
 		}
 		return candidates;
+	}
+
+	/**
+	 * 2.1.2 keeps the jobs whose location is in the user's scope, so a job without a location is
+	 * never listed and cannot be read by its uuid. Here a job without a location is listed for
+	 * every user whose reports scope covers at least one location. A request that names a
+	 * location, and a call without privilege filters (no scope check), are 2.1.2's. No scope at
+	 * all lists nothing.
+	 * <p>
+	 * The 2.1.2 query cannot say "or null" and its helpers are private, so this reads the jobs
+	 * without the location restriction and applies it here, paging afterwards like 2.1.2
+	 * ({@code startIndex} is a page number, {@code totalCount} counts the jobs kept). Batch jobs
+	 * expire, so the table stays small.
+	 */
+	@Override
+	public Result<BatchJobDTO> findBatchJobs(BatchJobSearchFilter filter,
+	        HashSet<RecordPrivilegeFilter> recordPrivilegeFilters) {
+		if (recordPrivilegeFilters == null || (filter.getLocationScopeIds() != null && !filter.getLocationScopeIds().isEmpty())) {
+			return findBatchJobs212(filter, recordPrivilegeFilters);
+		}
+		if (recordPrivilegeFilters.isEmpty()) {
+			return new Result<>(new ArrayList<>(), 0);
+		}
+
+		Integer pageIndex = filter.getStartIndex();
+		Integer pageSize = filter.getLimit();
+		filter.setStartIndex(null);
+		filter.setLimit(null);
+		Result<BatchJobDTO> all;
+		try {
+			all = findBatchJobs212(filter, null);
+		}
+		finally {
+			filter.setStartIndex(pageIndex);
+			filter.setLimit(pageSize);
+		}
+
+		Set<Integer> scopeLocationIds = recordPrivilegeFilters.stream().map(RecordPrivilegeFilter::getLocationId)
+		        .collect(Collectors.toSet());
+		List<BatchJobDTO> listed = all.getData().stream()
+		        .filter(job -> job.getLocationScopeId() == null || scopeLocationIds.contains(job.getLocationScopeId()))
+		        .collect(Collectors.toList());
+
+		long total = listed.size();
+		Result<BatchJobDTO> result = new Result<>();
+		if (pageIndex != null && pageSize != null && pageIndex >= 0 && pageSize >= 0) {
+			result.setPageIndex(pageIndex);
+			result.setPageSize(pageSize);
+			long from = (long) pageIndex * pageSize;
+			listed = from >= total ? new ArrayList<BatchJobDTO>()
+			        : new ArrayList<>(listed.subList((int) from, (int) Math.min(total, from + pageSize)));
+		}
+		result.setData(listed);
+		// after the paging setters, which ask for the count to be loaded again
+		result.setTotalRecordCount(total);
+		return result;
+	}
+
+	/**
+	 * 2.1.2's search: with privilege filters it keeps the jobs at their locations, without them
+	 * every job that matches the other filters, whatever its location, with its owners and names.
+	 */
+	protected Result<BatchJobDTO> findBatchJobs212(BatchJobSearchFilter filter,
+	        HashSet<RecordPrivilegeFilter> recordPrivilegeFilters) {
+		return super.findBatchJobs(filter, recordPrivilegeFilters);
 	}
 }
